@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Hardhat build output
+artifacts/
+cache/
+coverage/
+coverage.json
+typechain-types/
+
+# Secrets / local config - never commit real keys
+.env
+.env.local
+.env.*.local
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.log
+.vscode/*
+!.vscode/extensions.json
