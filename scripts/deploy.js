@@ -70,7 +70,8 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   if (!deployer) throw new Error("No signer: set DEPLOYER_PRIVATE_KEY in .env");
 
-  console.log(`Deploying to ${info.label} (chainId ${info.chainId}) as ${deployer.address}`);
+  const { chainId } = await ethers.provider.getNetwork();
+  console.log(`Deploying to ${info.label} (chainId ${chainId}) as ${deployer.address}`);
 
   if (info.leg === "mst") await deploySepolia(deployer);
   else await deployArbitrum();

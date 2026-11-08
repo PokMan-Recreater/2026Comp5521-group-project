@@ -12,8 +12,8 @@
  * MST window closes - which is exactly why the timelocks are asymmetric.
  */
 
-const { attachLeg, currentChain, currentTimestamp, getActors, readLeg, senderOf, txUrl } = require("./lib/chain");
-const { refundLeg } = require("./lib/protocol");
+const { attachLeg, currentChain, currentTimestamp, getActors, senderOf, txUrl } = require("./lib/chain");
+const { readLeg, refundLeg } = require("./lib/protocol");
 const { latestSwap, recordLeg } = require("./lib/swapStore");
 
 /** Refuses to send a refund that the contract would reject anyway, and says how long is left. */

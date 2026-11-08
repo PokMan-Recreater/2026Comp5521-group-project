@@ -74,8 +74,8 @@ async function main() {
   console.log(`  group     ${record.groupId}`);
   console.log(`  preimage  ${preimage}   <-- SECRET, keep it local (Alice)`);
   console.log(`  hashlock  ${hashlock}   <-- send this to Bob`);
-  console.log(`  MST leg   Alice ${alice.address} -> Bob ${bob.address}, amount ${mstAmount} wei-units`);
-  console.log(`  ETH leg   Bob   ${bob.address} -> Alice ${alice.address}, amount ${ethAmount} wei`);
+  console.log(`  MST leg   Alice ${alice.address} -> Bob ${bob.address}, amount ${ethers.formatUnits(mstAmount, 18)} MST`);
+  console.log(`  ETH leg   Bob   ${bob.address} -> Alice ${alice.address}, amount ${ethers.formatEther(ethAmount)} ETH`);
   console.log(`  deadlines MST +${mstTimelockSeconds}s, ETH +${ethTimelockSeconds}s (relative to each chain's clock)`);
   console.log("\nNext: npx hardhat run scripts/2_lockERC20.js --network sepolia");
 }

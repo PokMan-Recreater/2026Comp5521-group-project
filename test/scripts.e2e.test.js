@@ -167,6 +167,7 @@ describe("scripts/ - Task B coordinator (end-to-end on a local chain)", function
         now: await nowSeconds(),
       });
       expect(finalView.nextActions.join(" | ")).to.match(/swap complete/);
+      expect(finalView.pairing.ok).to.equal(true); // still a valid pair after completion
 
       // the group record on disk links the two independent on-chain ids
       const stored = store.getSwap(record.groupId);
@@ -224,6 +225,7 @@ describe("scripts/ - Task B coordinator (end-to-end on a local chain)", function
       expect(finalView.mst).to.equal(LegState.REFUNDED);
       expect(finalView.eth).to.equal(LegState.REFUNDED);
       expect(finalView.nextActions.join(" | ")).to.match(/swap cancelled/);
+      expect(finalView.pairing.ok).to.equal(true); // expired deadlines do not invalidate a finished swap
     });
 
     it("rejects an unsafe timelock ordering before anything is locked", async function () {
@@ -235,6 +237,50 @@ describe("scripts/ - Task B coordinator (end-to-end on a local chain)", function
         /STRICTLY BEFORE/
       );
       expect(() => protocol.assertAsymmetricTimelocks({ ethTimelock: now + 900n, mstTimelock: now + 1800n })).to.not.throw();
+    });
+  });
+
+  describe("script wiring (static checks)", function () {
+    const scriptsDir = path.join(__dirname, "..", "scripts");
+
+    /** Every `const { a, b } = require("./lib/x")` / `= require("./lib/x")` in a script. */
+    function destructuredImports(source) {
+      const found = [];
+      const pattern = /const\s*\{([^}]+)\}\s*=\s*require\("(\.\/lib\/[a-zA-Z]+)"\)/g;
+      let match;
+      while ((match = pattern.exec(source)) !== null) {
+        const names = match[1]
+          .split(",")
+          .map((name) => name.trim().split(":")[0].trim())
+          .filter(Boolean);
+        found.push({ module: match[2], names });
+      }
+      return found;
+    }
+
+    it("only imports names that the shared library actually exports", function () {
+      const files = fs.readdirSync(scriptsDir).filter((name) => name.endsWith(".js"));
+      expect(files.length).to.be.greaterThan(5);
+
+      for (const file of files) {
+        const source = fs.readFileSync(path.join(scriptsDir, file), "utf8");
+        for (const { module, names } of destructuredImports(source)) {
+          const exported = require(path.join(scriptsDir, module));
+          for (const name of names) {
+            expect(Object.keys(exported), `${file} imports ${name} from ${module}`).to.include(name);
+          }
+        }
+      }
+    });
+
+    it("uses the main().catch(...) convention so failures exit non-zero", function () {
+      const files = fs.readdirSync(scriptsDir).filter((name) => name.endsWith(".js"));
+      for (const file of files) {
+        const source = fs.readFileSync(path.join(scriptsDir, file), "utf8");
+        if (!source.includes("main(")) continue; // helper modules without an entry point
+        expect(source, `${file} must propagate failures`).to.match(/main\(\)\.catch\(/);
+        expect(source, `${file} must set a failing exit code`).to.include("process.exitCode = 1");
+      }
     });
   });
 

@@ -99,9 +99,12 @@ function sameAddress(a, b) {
  *          timelock: number|bigint|string}} params.eth The Arbitrum Sepolia leg (`ETHHTLC`).
  * @param {string} [params.preimage] Secret held by the coordinator; verified when supplied.
  * @param {number|bigint} [params.now] Unix seconds treated as "now" (defaults to the wall clock).
+ * @param {boolean} [params.ignoreExpiry] Skip the "still in the future" checks. Used when describing a
+ *        finished swap: its deadlines have necessarily passed by then, and that says nothing about whether
+ *        the two legs were correctly paired.
  * @returns {{ok: boolean, issues: string[]}}
  */
-function verifyLegPair({ mst, eth, preimage, now = Math.floor(Date.now() / 1000) }) {
+function verifyLegPair({ mst, eth, preimage, now = Math.floor(Date.now() / 1000), ignoreExpiry = false }) {
   const issues = [];
   const currentTime = BigInt(now);
 
@@ -127,9 +130,11 @@ function verifyLegPair({ mst, eth, preimage, now = Math.floor(Date.now() / 1000)
     issues.push("the ETH leg must expire strictly before the MST leg (asymmetric timelocks)");
   }
 
-  // 4. the deadlines must still be usable when the second leg is funded
-  if (ethTimelock <= currentTime) issues.push("the ETH leg has already expired");
-  if (mstTimelock <= currentTime) issues.push("the MST leg has already expired");
+  // 4. the deadlines must still be usable when the second leg is funded (skipped for finished swaps)
+  if (!ignoreExpiry) {
+    if (ethTimelock <= currentTime) issues.push("the ETH leg has already expired");
+    if (mstTimelock <= currentTime) issues.push("the MST leg has already expired");
+  }
 
   // 5. amounts
   if (BigInt(mst.amount) <= 0n) issues.push("the MST amount must be non-zero");

@@ -24,7 +24,7 @@ asymmetric timelocks, verifies the pair, claims both legs and recovers from time
 | `scripts/lib/swapId.js` | Off-chain protocol primitives | Both on-chain swap-id derivations, secret/hashlock generation and `verifyLegPair` (shared hashlock + crossed parties + timelock ordering) |
 | `scripts/lib/{chain,protocol,state,snapshot,swapStore}.js` | Coordinator library | Network/actor plumbing and explorer links, the protocol operations (lock/claim/refund with off-chain id checks), leg classification, the two-chain snapshot and the JSON swap-group record |
 | `scripts/deploy.js`, `scripts/1_generateSecret.js` … `scripts/6_refund.js`, `scripts/inspect.js`, `scripts/mintApproveMST.js` | **Task B coordinator** | Per-network deployment, secret generation, both locks, pair verification, claim on both legs, timeout recovery, dual-chain inspection, demo funding |
-| `test/scripts.e2e.test.js` | Coordinator test suite | 9 tests running the whole protocol library end to end: lock → verify → claim, refund after both deadlines, unsafe-ordering rejection, state classification and record persistence |
+| `test/scripts.e2e.test.js` | Coordinator test suite | 11 tests running the whole protocol library end to end plus static wiring checks (imports resolve, failures exit non-zero) |
 | `contracts/mocks/*.sol` | **Test-only** harnesses | A native-value harness, a re-entrancy attacker, an ETH-rejecting receiver, a re-entering native receiver and ERC20 mocks (MST, false-returning token, re-entrant token). Not part of the production architecture. |
 | `test/HTLCBase.test.js` | Foundation test suite | 42 tests covering the enum/struct ABI layout, id derivation, every error path, the re-entrancy guard and payout atomicity |
 | `test/ERC20HTLC.test.js` | ERC20 leg test suite | 38 tests covering the MST configuration, `lockMST` validations, token-interaction failures, claim/refund paths, the `IHTLC` surface, accounting invariants and re-entrancy on every entry point |
@@ -84,7 +84,7 @@ E:\comp5521 group project\
 cd 'E:\comp5521 group project'
 npm install          # Node >= 18 (verified with Node 22 / npm 10)
 npm run compile      # npx hardhat compile
-npm test             # 139 passing tests (42 foundation + 38 ERC20 + 37 ETH + 13 helpers + 9 coordinator)
+npm test             # 142 passing tests (42 foundation + 38 ERC20 + 37 ETH + 14 helpers + 11 coordinator)
 npm run lint         # solhint over contracts/**
 npm run gas          # test suite with a gas report (REPORT_GAS=true)
 ```
@@ -426,7 +426,7 @@ contracts.
 
 ## 9. Test suites
 
-`npm test` → **139 passing** (42 foundation + 38 ERC20 leg + 37 ETH leg + 13 off-chain helpers + 9
+`npm test` → **142 passing** (42 foundation + 38 ERC20 leg + 37 ETH leg + 14 off-chain helpers + 11
 coordinator) in ~5 s on the in-process Hardhat network. `npm run coverage` reports **100 % statements /
 branches / functions / lines** for `ERC20HTLC.sol`, `ETHHTLC.sol`, `HTLCBase.sol`, `IHTLC.sol` and
 `HTLCErrors.sol`.
@@ -476,24 +476,25 @@ Useful extras: `npm run coverage` (solidity-coverage) and `npm run gas` (gas rep
 | re-entrancy on every entry point | 5 | `ReentrancyDetected` for `lockETH`, `createSwap` and `claimSwap` during a payout, and for `refundETH` / `refundSwap` during a refund payout to a contract sender |
 | cross-leg parity | 3 | one preimage settles both legs (the ETH claim reveals it, the MST claim spends it); the two legs derive different ids for the same logical swap; the ETH leg expires and refunds first while the MST leg keeps its longer window and is refunded afterwards |
 
-### `test/swapIdLib.test.js` (13 tests)
+### `test/swapIdLib.test.js` (14 tests)
 
 | Group | Tests | What is proven |
 | --- | --- | --- |
 | `hashPreimage` / `generateSecret` | 2 | the generated hashlock is accepted and then opened by the deployed `ETHHTLC`; every secret is a fresh 32-byte value |
 | id derivations | 3 | `deriveMstLegSwapId` / `deriveEthLegSwapId` equal what `ERC20HTLC` / `ETHHTLC` return and store; the two legs differ even with identical parameters |
-| `verifyLegPair` | 8 | accepts a correctly crossed pair; rejects non-crossed parties, mismatched hashlocks, a missing asymmetric timelock, already-expired legs, a wrong preimage and zero amounts; exposes the native token marker |
+| `verifyLegPair` | 9 | accepts a correctly crossed pair; rejects non-crossed parties, mismatched hashlocks, a missing asymmetric timelock, already-expired legs, a wrong preimage and zero amounts; `ignoreExpiry` drops the deadline checks when describing a finished swap; exposes the native token marker |
 
-### `test/scripts.e2e.test.js` (9 tests)
+### `test/scripts.e2e.test.js` (11 tests)
 
 Runs the Task B coordinator library end to end. The step scripts are thin wrappers (read `.env`, attach the
-contracts, call in, print), so these tests cover the logic they wrap — including the two-chain flow, with
-both legs deployed on the in-process network.
+contracts, call in, print), so these tests cover the logic they wrap — plus two static checks that catch the
+mistakes a thin wrapper invites.
 
 | Group | Tests | What is proven |
 | --- | --- | --- |
 | successful swap (B2) | 2 | `lockMstLeg` approves exactly the needed amount and `lockEthLeg` locks `msg.value`; both ids match the off-chain derivations; `describeGroup` reports a valid pair; Alice claims the ETH leg and the `SwapClaimed` event yields the preimage; Bob settles the MST leg with it; both assets move; the record links the two different on-chain ids |
 | timeout recovery (B4) | 2 | after the ETH deadline the ETH leg is `REFUNDABLE` while the MST leg is still `CLAIMABLE`; the ETH refund succeeds and the MST refund is rejected with `TimelockNotExpired` until its own deadline, then both legs are `REFUNDED`; `assertAsymmetricTimelocks` rejects equal or inverted deadlines |
+| script wiring (static) | 2 | every `const { … } = require("./lib/x")` in every script names something that module really exports (this caught a real `readLeg` import bug); every entry point ends in `main().catch(…)` with `process.exitCode = 1` |
 | state observation + record (B3) | 5 | `readLeg` returns `null` for an unknown id (selector-matched); `classifyLeg` maps every status/deadline combination; `describeGroup` flags uncrossed parties, mismatched hashlocks and a missing leg; the JSON store keeps groups in order, stores amounts as strings and merges per-leg steps without losing earlier fields |
 
 Gas snapshot from `npm run gas` (optimizer on, 200 runs, `solc 0.8.20`):
@@ -530,7 +531,8 @@ npx hardhat verify --network arbitrumSepolia <address>
 
 ## 11. Next steps for the group
 
-Tasks A and B are **done** (both contracts, the coordinator, 139 passing tests). What remains:
+Tasks A and B are **done** (both contracts, the coordinator, 142 passing tests, and both demonstration
+scenarios rehearsed end to end — see §12.6). What remains:
 
 1. ~~**Task A** — `ERC20HTLC.sol` + `ETHHTLC.sol`~~ **done**: 100 % statement/branch/function/line
    coverage on both legs and on `HTLCBase`, lint clean.
@@ -651,3 +653,38 @@ preimage is a secret while the swap is in flight.
 
 The ETH deadline must stay strictly shorter than the MST deadline; otherwise `1_generateSecret.js` and
 `3_lockETH.js` abort before any asset moves.
+
+### 12.6 Rehearse the whole run book locally, without any testnet
+
+`hardhat.local.config.js` maps the two *network names* onto two local nodes on different ports, so the exact
+same commands can be rehearsed (and the presentation timed) before spending testnet funds. This is how the
+whole run book above was validated.
+
+```powershell
+# two terminals - the two independent "chains"
+npx hardhat node --port 8545
+npx hardhat node --port 8546
+
+# .env: point the RPC URLs at them and use the standard Hardhat account keys
+#   SEPOLIA_RPC_URL=http://127.0.0.1:8545
+#   ARBITRUM_SEPOLIA_RPC_URL=http://127.0.0.1:8546
+#   DEPLOYER / ALICE / BOB = hardhat accounts #0 / #1 / #2
+#   ETH_TIMELOCK_SECONDS=30, ERC20_TIMELOCK_SECONDS=60, SWAP_ETH_AMOUNT=0.5
+
+npx hardhat run scripts/deploy.js --network sepolia           --config hardhat.local.config.js
+npx hardhat run scripts/deploy.js --network arbitrumSepolia   --config hardhat.local.config.js
+# ...then every command of §12.2 / §12.3 with the same --config flag
+```
+
+Both nodes report chainId 31337, which is why that config declares 31337 for the two network entries.
+Nothing else changes: the scripts still see two independent chains (two RPC URLs, two providers, two sets of
+contract addresses), which is exactly the real topology. Delete `.env`, `scripts/.state/` and the two nodes
+afterwards; the rehearsal leaves no trace in git.
+
+Two timing lessons from that rehearsal (both are handled by the scripts now):
+
+* the newest block of a quiet chain can be a minute older than the wall clock, so every deadline is computed
+  from the newer of the two — adding a short demo offset to a stale block would produce an
+  `InvalidTimelock` revert;
+* `6_refund.js` and `5_claimBoth.js` compare deadlines the same way, so they refuse a transaction that the
+  contract would reject instead of wasting gas on it.

@@ -192,6 +192,17 @@ describe("scripts/lib/swapId.js - off-chain protocol helpers", function () {
       expect(result.issues).to.include("the MST leg has already expired");
     });
 
+    it("can ignore the expiry checks when describing a finished swap", async function () {
+      const stale = Number(mstTimelock) + 1; // both deadlines are behind "now"
+
+      const strict = verifyLegPair({ mst: mstDescriptor(), eth: ethDescriptor(), now: stale });
+      const lenient = verifyLegPair({ mst: mstDescriptor(), eth: ethDescriptor(), now: stale, ignoreExpiry: true });
+
+      expect(strict.ok).to.equal(false);
+      expect(lenient.issues).to.deep.equal([]);
+      expect(lenient.ok).to.equal(true);
+    });
+
     it("rejects a preimage that does not open the shared hashlock", async function () {
       const result = verifyLegPair({
         mst: mstDescriptor(),

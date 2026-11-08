@@ -70,10 +70,17 @@ function otherChain() {
   return Object.values(CHAINS).find((info) => info.key !== current.key);
 }
 
+/** Expected chain id of a chain: `hardhat.config.js` is the single source of truth, the descriptor is the fallback. */
+function chainIdOf(chainName) {
+  const info = chainInfo(chainName);
+  const configured = hre.config.networks[info.key];
+  return (configured && configured.chainId) || info.chainId;
+}
+
 /** Read-only provider for a chain built from its RPC URL (usable while `--network` is the other chain). */
 function providerFor(chainName) {
   const info = chainInfo(chainName);
-  return new ethers.JsonRpcProvider(requireEnv(info.rpcVar), info.chainId);
+  return new ethers.JsonRpcProvider(requireEnv(info.rpcVar), chainIdOf(chainName));
 }
 
 // ---------------------------------------------------------------------
@@ -175,16 +182,33 @@ async function readOnlyLeg(chainName) {
   return ethers.getContractAt(info.legContract, requireAddress(info.contractVar), providerFor(chainName));
 }
 
-/** Latest block timestamp of the chain selected by `--network`, as a bigint. */
+/**
+ * Effective "now" for the CURRENT network.
+ *
+ * Returns the NEWER of the newest block timestamp and the wall clock. A quiet chain's newest block can be
+ * minutes old, while the next transaction will be mined at a timestamp at least equal to the wall clock -
+ * so this is the value the deadline comparisons in `3_lockETH`, `5_claimBoth` and `6_refund` must use. It is
+ * also the safe base for `futureDeadline`: adding an offset to a stale block timestamp can produce a
+ * deadline that is already in the past (`InvalidTimelock`).
+ */
 async function currentTimestamp() {
   const block = await ethers.provider.getBlock("latest");
-  return BigInt(block.timestamp);
+  const chainTime = BigInt(block.timestamp);
+  const wallClock = BigInt(Math.floor(Date.now() / 1000));
+  return chainTime > wallClock ? chainTime : wallClock;
 }
 
-/** Latest block timestamp of any supported chain, as a bigint. */
+/** Absolute timelock for "`offsetSeconds` from now" on the CURRENT network. */
+async function futureDeadline(offsetSeconds) {
+  return (await currentTimestamp()) + BigInt(offsetSeconds);
+}
+
+/** Effective "now" of any supported chain (newest block vs wall clock, whichever is later). */
 async function timestampOf(chainName) {
   const block = await providerFor(chainName).getBlock("latest");
-  return BigInt(block.timestamp);
+  const chainTime = BigInt(block.timestamp);
+  const wallClock = BigInt(Math.floor(Date.now() / 1000));
+  return chainTime > wallClock ? chainTime : wallClock;
 }
 
 module.exports = {
@@ -207,5 +231,6 @@ module.exports = {
   attachMst,
   readOnlyLeg,
   currentTimestamp,
+  futureDeadline,
   timestampOf,
 };

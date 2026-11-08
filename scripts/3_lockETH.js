@@ -21,6 +21,7 @@ const {
   attachLeg,
   currentChain,
   currentTimestamp,
+  futureDeadline,
   getActors,
   readOnlyLeg,
   receiverOf,
@@ -73,15 +74,23 @@ async function main() {
   }
 
   const leg = await attachLeg("arbitrumSepolia", sender);
+  const timelock = await futureDeadline(record.timelockOffsets.eth);
+
+  // the MST leg must still be claimable by the time the ETH leg closes, or there is nothing left to swap
   const now = await currentTimestamp();
-  const timelock = now + BigInt(record.timelockOffsets.eth);
+  if (now >= mstSwap.timelock) {
+    throw new Error(
+      `The MST leg already expired ${now - mstSwap.timelock}s ago (deadline ${mstSwap.timelock}). ` +
+        "Do not fund the ETH leg: start a new swap with scripts/1_generateSecret.js."
+    );
+  }
 
   assertAsymmetricTimelocks({ ethTimelock: timelock, mstTimelock: mstSwap.timelock });
 
-  console.log(`Locking ${amount} wei for ${receiver.address} on ${info.label}`);
+  console.log(`Locking ${ethers.formatEther(amount)} ETH for ${receiver.address} on ${info.label}`);
   console.log(`  group    ${record.groupId}`);
   console.log(`  hashlock ${mstSwap.hashlock}  (read back from Ethereum Sepolia)`);
-  console.log(`  ETH lock ${timelock}  (+${record.timelockOffsets.eth}s from chain time ${now})`);
+  console.log(`  ETH lock ${timelock}  (${record.timelockOffsets.eth}s from now)`);
   console.log(`  MST lock ${mstSwap.timelock}  -> the ETH leg expires ${mstSwap.timelock - timelock}s earlier`);
 
   const result = await lockEthLeg({

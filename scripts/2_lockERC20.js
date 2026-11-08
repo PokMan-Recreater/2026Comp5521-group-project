@@ -12,11 +12,13 @@
 
 const hre = require("hardhat");
 
+const { ethers } = hre;
+
 const {
   attachLeg,
   attachMst,
   currentChain,
-  currentTimestamp,
+  futureDeadline,
   getActors,
   receiverOf,
   senderOf,
@@ -53,13 +55,12 @@ async function main() {
   }
 
   const leg = await attachLeg("sepolia", sender);
-  const now = await currentTimestamp();
-  const timelock = now + BigInt(record.timelockOffsets.mst);
+  const timelock = await futureDeadline(record.timelockOffsets.mst);
 
-  console.log(`Locking ${amount} MST for ${receiver.address} on ${info.label}`);
+  console.log(`Locking ${ethers.formatUnits(amount, 18)} MST for ${receiver.address} on ${info.label}`);
   console.log(`  group    ${record.groupId}`);
   console.log(`  hashlock ${record.hashlock}`);
-  console.log(`  timelock ${timelock}  (+${record.timelockOffsets.mst}s from chain time ${now})`);
+  console.log(`  timelock ${timelock}  (${record.timelockOffsets.mst}s from now)`);
 
   const result = await lockMstLeg({
     leg,

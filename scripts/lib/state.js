@@ -67,9 +67,14 @@ function describeGroup({ mstSwap, ethSwap, preimage, now }) {
   const mst = classifyLeg(mstSwap, now);
   const eth = classifyLeg(ethSwap, now);
 
+  // a finished swap is judged on identity alone: its deadlines have necessarily passed by then
+  const terminal = (state) =>
+    state === LegState.CLAIMED || state === LegState.REFUNDED || state === LegState.MISSING;
+  const finished = terminal(mst) || terminal(eth);
+
   const pairing =
     mstSwap && ethSwap
-      ? verifyLegPair({ ...legPairFromChain({ mstSwap, ethSwap }), preimage, now })
+      ? verifyLegPair({ ...legPairFromChain({ mstSwap, ethSwap }), preimage, now, ignoreExpiry: finished })
       : { ok: false, issues: ["both legs must be locked before the pair can be verified"] };
 
   const nextActions = [];
