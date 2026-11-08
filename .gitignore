@@ -8,6 +8,10 @@ coverage/
 coverage.json
 typechain-types/
 
+# Frontend build output
+dist/
+frontend/dist/
+
 # Secrets / local config - never commit real keys
 .env
 .env.local

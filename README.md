@@ -4,11 +4,11 @@ Shared Solidity foundation for the COMP 5521 Distributed Ledger Technology proje
 contract (HTLC) suite that performs an atomic swap between an **ERC20 token on Ethereum Sepolia** and
 **native ETH on Arbitrum Sepolia**.
 
-This repository contains **Task A (both HTLC contracts) and Task B (the cross-chain protocol and its
-scripts)**: the shared foundation, `ERC20HTLC.sol` for MST on Ethereum Sepolia, `ETHHTLC.sol` for native ETH
-on Arbitrum Sepolia, and a coordinator in `scripts/` that generates the secret, locks both legs with
-asymmetric timelocks, verifies the pair, claims both legs and recovers from timeouts. The web interface
-(Task C), the testnet deployments and the report are the remaining work (see §11, §12).
+This repository contains **Tasks A, B and C**: the shared foundation, `ERC20HTLC.sol` for MST on Ethereum
+Sepolia, `ETHHTLC.sol` for native ETH on Arbitrum Sepolia, a coordinator in `scripts/` that generates the
+secret, locks both legs with asymmetric timelocks, verifies the pair, claims both legs and recovers from
+timeouts, and a web interface in `frontend/` that drives the same flow through MetaMask. The testnet
+deployments and the report are the remaining work (see §11, §12, §13).
 
 ---
 
@@ -25,6 +25,8 @@ asymmetric timelocks, verifies the pair, claims both legs and recovers from time
 | `scripts/lib/{chain,protocol,state,snapshot,swapStore}.js` | Coordinator library | Network/actor plumbing and explorer links, the protocol operations (lock/claim/refund with off-chain id checks), leg classification, the two-chain snapshot and the JSON swap-group record |
 | `scripts/deploy.js`, `scripts/1_generateSecret.js` … `scripts/6_refund.js`, `scripts/inspect.js`, `scripts/mintApproveMST.js` | **Task B coordinator** | Per-network deployment, secret generation, both locks, pair verification, claim on both legs, timeout recovery, dual-chain inspection, demo funding |
 | `test/scripts.e2e.test.js` | Coordinator test suite | 11 tests running the whole protocol library end to end plus static wiring checks (imports resolve, failures exit non-zero) |
+| `test/frontendLib.test.js` | Frontend parity tests | 6 tests asserting that the browser mirror of the protocol maths (`frontend/src/lib/swapId.js`) agrees with the CommonJS original on hashing, both id derivations and every `verifyLegPair` verdict |
+| `frontend/` | **Task C web interface** | React + Vite single-page console: MetaMask connect with network switching, create/import a swap, per-leg lock/claim/refund with role-aware buttons, live atomicity panel, activity log with explorer links (see §13 and `frontend/README.md`) |
 | `contracts/mocks/*.sol` | **Test-only** harnesses | A native-value harness, a re-entrancy attacker, an ETH-rejecting receiver, a re-entering native receiver and ERC20 mocks (MST, false-returning token, re-entrant token). Not part of the production architecture. |
 | `test/HTLCBase.test.js` | Foundation test suite | 42 tests covering the enum/struct ABI layout, id derivation, every error path, the re-entrancy guard and payout atomicity |
 | `test/ERC20HTLC.test.js` | ERC20 leg test suite | 38 tests covering the MST configuration, `lockMST` validations, token-interaction failures, claim/refund paths, the `IHTLC` surface, accounting invariants and re-entrancy on every entry point |
@@ -68,8 +70,15 @@ E:\comp5521 group project\
 │  ├─ HTLCBase.test.js             # 42 tests for the shared foundation
 │  ├─ ERC20HTLC.test.js            # 38 tests for the MST locking leg
 │  ├─ ETHHTLC.test.js              # 37 tests for the native-ETH leg (+ cross-leg parity)
-│  ├─ swapIdLib.test.js            # 13 tests for the off-chain protocol helpers
-│  └─ scripts.e2e.test.js          # 9 tests for the Task B coordinator library
+│  ├─ swapIdLib.test.js            # 14 tests for the off-chain protocol helpers
+│  ├─ scripts.e2e.test.js          # 11 tests for the Task B coordinator library
+│  └─ frontendLib.test.js          # 6 tests: browser mirror == CommonJS protocol maths
+├─ frontend\                       # Task C: React + Vite single-page swap console
+│  ├─ index.html · vite.config.js · package.json · .env.example · README.md
+│  └─ src\
+│     ├─ App.jsx                   # state machine, handlers, layout
+│     ├─ components\               # WalletBar, SwapSetup, LegCard, PairingPanel, ActivityLog
+│     └─ lib\                      # config, wallet, contracts, swapId, store, format
 ├─ hardhat.config.js               # 0.8.20 + optimizer, hardhat / localhost / sepolia / arbitrumSepolia
 ├─ .env.example                    # RPC URLs, deployer key, explorer keys (copy to .env)
 ├─ .solhint.json                   # Solidity linter rules
@@ -84,9 +93,13 @@ E:\comp5521 group project\
 cd 'E:\comp5521 group project'
 npm install          # Node >= 18 (verified with Node 22 / npm 10)
 npm run compile      # npx hardhat compile
-npm test             # 142 passing tests (42 foundation + 38 ERC20 + 37 ETH + 14 helpers + 11 coordinator)
+npm test             # 148 passing tests (42 foundation + 38 ERC20 + 37 ETH + 14 helpers + 11 coordinator + 6 frontend)
 npm run lint         # solhint over contracts/**
 npm run gas          # test suite with a gas report (REPORT_GAS=true)
+
+cd frontend          # Task C web interface (React + Vite + ethers)
+npm install
+npm run dev          # http://localhost:5173  (see §13)
 ```
 
 Deploying to the testnets and running the cross-chain protocol (full walkthrough in §12):
@@ -426,10 +439,10 @@ contracts.
 
 ## 9. Test suites
 
-`npm test` → **142 passing** (42 foundation + 38 ERC20 leg + 37 ETH leg + 14 off-chain helpers + 11
-coordinator) in ~5 s on the in-process Hardhat network. `npm run coverage` reports **100 % statements /
-branches / functions / lines** for `ERC20HTLC.sol`, `ETHHTLC.sol`, `HTLCBase.sol`, `IHTLC.sol` and
-`HTLCErrors.sol`.
+`npm test` → **148 passing** (42 foundation + 38 ERC20 leg + 37 ETH leg + 14 off-chain helpers + 11
+coordinator + 6 frontend parity) in ~5 s on the in-process Hardhat network. `npm run coverage` reports **100 %
+statements / branches / functions / lines** for `ERC20HTLC.sol`, `ETHHTLC.sol`, `HTLCBase.sol`, `IHTLC.sol`
+and `HTLCErrors.sol`.
 
 ### `test/HTLCBase.test.js` (42 tests)
 
@@ -497,6 +510,16 @@ mistakes a thin wrapper invites.
 | script wiring (static) | 2 | every `const { … } = require("./lib/x")` in every script names something that module really exports (this caught a real `readLeg` import bug); every entry point ends in `main().catch(…)` with `process.exitCode = 1` |
 | state observation + record (B3) | 5 | `readLeg` returns `null` for an unknown id (selector-matched); `classifyLeg` maps every status/deadline combination; `describeGroup` flags uncrossed parties, mismatched hashlocks and a missing leg; the JSON store keeps groups in order, stores amounts as strings and merges per-leg steps without losing earlier fields |
 
+### `test/frontendLib.test.js` (6 tests)
+
+Keeps the browser copy of the protocol maths honest. `frontend/src/lib/swapId.js` has to be a mirror (the
+scripts are CommonJS and the bundle is ESM), so these tests import it and compare every function with the
+CommonJS original — the two cannot drift apart without a failing test.
+
+| Group | Tests | What is proven |
+| --- | --- | --- |
+| parity with `scripts/lib/swapId.js` | 6 | same `NATIVE_TOKEN`; identical `hashPreimage`; a generated secret is 32 bytes and opens its own hashlock; both id derivations match; `verifyLegPair` returns byte-identical verdicts and issue lists, including the `ignoreExpiry` path |
+
 Gas snapshot from `npm run gas` (optimizer on, 200 runs, `solc 0.8.20`):
 
 | Operation | Gas |
@@ -531,24 +554,22 @@ npx hardhat verify --network arbitrumSepolia <address>
 
 ## 11. Next steps for the group
 
-Tasks A and B are **done** (both contracts, the coordinator, 142 passing tests, and both demonstration
-scenarios rehearsed end to end — see §12.6). What remains:
+Tasks A, B and C are **done**: both contracts, the coordinator scripts, the web interface, 148 passing tests,
+and both demonstration scenarios rehearsed end to end (§12.6). What remains:
 
-1. ~~**Task A** — `ERC20HTLC.sol` + `ETHHTLC.sol`~~ **done**: 100 % statement/branch/function/line
-   coverage on both legs and on `HTLCBase`, lint clean.
+1. ~~**Task A** — `ERC20HTLC.sol` + `ETHHTLC.sol`~~ **done**: 100 % statement/branch/function/line coverage on
+   both legs and on `HTLCBase`, lint clean.
 2. ~~**Task B** — `scripts/` coordinator~~ **done**: see the run book in §12.
-3. **Deploy and verify on both testnets** (this is also what unblocks the live demo, Task E): run §12
-   steps 1–2, verify both contracts with `npx hardhat verify`, record the addresses in §10, pre-fund Alice
-   and Bob, and rehearse both the claim and the refund path with shortened timelocks.
-4. **Task C — frontend (10 marks).** MetaMask connect + network switching between 11155111 and 421614,
-   balances, `approve` + lock both legs, `verifyLegPair` feedback (the same function the scripts use), claim,
-   refund and explorer links. Both legs expose one ABI shape, so a single contract wrapper drives both
-   chains.
-5. **Task D + F — report, slides, contribution table, `Changes.md` (25 marks).** §7, §9 and §12 of this
-   README are written to be lifted straight into the design, testing and demonstration sections. State which
-   functions were AI-assisted, as the AI policy requires.
+3. ~~**Task C** — `frontend/` web interface~~ **done**: see §13.
+4. **Deploy and verify on both testnets** (this is what unblocks the live demo, Task E): run §12 steps 1–2,
+   verify both contracts with `npx hardhat verify`, record the addresses in §10, put them in `frontend/.env`
+   (or paste them into the UI's Settings panel), pre-fund Alice and Bob, and rehearse both the claim and the
+   refund path with shortened timelocks.
+5. **Task D + F — report, slides, contribution table, `Changes.md` (25 marks).** §7, §9, §12 and §13 are
+   written to be lifted straight into the design, testing and demonstration sections. State which functions
+   were AI-assisted, as the AI policy requires.
 6. **Optional Challenge Part (10 marks)** — private cross-chain linkage (ZK equality of preimages, adaptor
-   signatures / point locks). Only after 3–5 are green; it must preserve the refund path.
+   signatures / point locks). Only after 4–5 are green; it must preserve the refund path.
 
 ---
 
@@ -688,3 +709,84 @@ Two timing lessons from that rehearsal (both are handled by the scripts now):
   `InvalidTimelock` revert;
 * `6_refund.js` and `5_claimBoth.js` compare deadlines the same way, so they refuse a transaction that the
   contract would reject instead of wasting gas on it.
+
+---
+
+## 13. Task C — the web interface (`frontend/`)
+
+A self-contained **React + Vite** single-page console that drives the same protocol through MetaMask. It
+shares no code with Hardhat, needs no backend, no API key and no server-side component: each chain is read
+through its own public JSON-RPC endpoint and every write is signed in the wallet.
+
+### 13.1 Run it
+
+```powershell
+cd frontend
+npm install
+Copy-Item .env.example .env
+#   VITE_MST_ADDRESS, VITE_ERC20_HTLC_ADDRESS, VITE_ETH_HTLC_ADDRESS  <- printed by scripts/deploy.js
+#   VITE_SEPOLIA_RPC_URL, VITE_ARBITRUM_SEPOLIA_RPC_URL               <- read-only endpoints (public defaults included)
+npm run dev          # http://localhost:5173
+npm run build        # static bundle in frontend/dist (no server needed: any static host works)
+```
+
+The three contract addresses can also be pasted into the **Settings** panel at runtime and are remembered per
+browser, so a freshly deployed swap can be demoed without touching the build.
+
+### 13.2 Screen map
+
+| Area | What it does |
+| --- | --- |
+| Wallet bar | connect, chain badge, MST balance (Sepolia), ETH balance (Arbitrum Sepolia), one-click network switch (`wallet_switchEthereumChain`, and `wallet_addEthereumChain` if the wallet has never seen the chain) |
+| Start a swap | MST amount, ETH amount, counterparty, both deadlines → generates the preimage **in the browser**, approves the MST allowance once, locks the MST leg |
+| Join a swap | paste the counterparty's exported JSON, then fund the ETH leg (the receiver is read from the MST leg on chain) |
+| Swap summary | hashlock, preimage (only once public), both amounts, counterparty, and a five-step progress list |
+| Leg cards | per leg: status pill, countdown, sender/receiver, swap id, lock transaction, and the actions the connected account is actually allowed to take |
+| Atomicity check | the four rules — shared hashlock, crossed parties, ETH expires first, preimage opens the hashlock — plus the verdict from `verifyLegPair` |
+| Activity | every transaction with its explorer link, and the decoded revert reason if one failed |
+
+### 13.3 How it maps to the Task C rubric
+
+| Item | Implementation |
+| --- | --- |
+| C1 wallet and network switching | `lib/wallet.js` — connect, `chainChanged`/`accountsChanged` subscriptions, switch-or-add for 11155111 and 421614; `ensureChain` runs before every transaction |
+| C2 swap setup, approval and state display | `SwapSetup` (amounts, counterparty, deadlines, one-time `approve`) and the per-leg cards (status, amounts, timelocks, balances) |
+| C3 swap and recovery workflow | the five-step progress list plus role-gated buttons: lock → verify → claim ETH → claim MST, or refund each leg once its own deadline has passed |
+| C4 transaction feedback | `ActivityLog` (hash + explorer link per step) and `decodeError`, which turns all 15 custom errors into sentences ("Only the swap receiver can claim this leg.") instead of raw revert data |
+
+### 13.4 Two design decisions worth explaining in the report
+
+1. **Roles are derived from chain state, not from a "I am Alice/Bob" switch.** The connected account is
+   compared with the on-chain `sender` and `receiver` of each leg, so a button is enabled only for the party
+   the contract would accept, and the disabled reason is printed next to it ("only the swap receiver can claim
+   this leg"). Switching the MetaMask account therefore flips the UI to the other party with no extra input.
+2. **The secret travels through the chain, not through a file.** The ETH owner never receives the preimage:
+   `fetchRevealedPreimage` reads it from the `SwapClaimed` event of the ETH leg once Alice has claimed it. The
+   MST claim button stays disabled until that event exists — which is precisely the atomic reveal the protocol
+   relies on, made visible.
+
+The protocol maths exists twice — `scripts/lib/swapId.js` (CommonJS, for the CLI) and
+`frontend/src/lib/swapId.js` (ESM, for the bundle). `test/frontendLib.test.js` imports the browser copy and
+asserts that every function agrees with the original, so the duplication cannot drift silently.
+
+### 13.5 Live demo with the UI (same flow as §12)
+
+| # | Who | Action |
+| --- | --- | --- |
+| 1 | Alice | Connect, fill the setup form (Bob's address, ETH deadline 90 s, MST deadline 240 s), press **Create swap & lock MST** — approve + lock in one guided step |
+| 2 | Alice | **Copy swap JSON** and hand it to Bob (chat, USB stick, anything off-chain) |
+| 3 | Bob | Switch the wallet to Bob's account, paste the JSON into **Join a swap**, press **Lock ETH** — the app switches to Arbitrum Sepolia by itself and reads the receiver from the MST leg |
+| 4 | either | Show the **Atomicity check** turning green (the four rules) |
+| 5 | Alice | **Claim ETH** on the ETH card — the preimage becomes public in the activity log |
+| 6 | Bob | **Claim MST** — the preimage is picked up from the ETH chain, so he never had to be told |
+| 7 | either | *Refund path:* repeat 1–3 with a 30 s ETH deadline and let it pass, then press **Refund** on each leg (the button only appears when the contract would accept it) |
+
+### 13.6 What the interface refuses to do
+
+| Guard | Behaviour |
+| --- | --- |
+| unsafe timelocks | the setup form blocks an ETH deadline that is not strictly shorter than the MST deadline |
+| funding a dead swap | **Lock ETH** is refused when the MST leg is not open or has already expired |
+| claiming without the secret | **Claim** is refused when no preimage that opens the hashlock is known; the MST claim is refused until the ETH claim exists |
+| wrong chain | every transaction calls `ensureChain` first, so a wallet on the wrong network is switched (or the action aborts) before anything is signed |
+| wrong account | the claim/refund buttons are disabled for anyone who is not the on-chain receiver/sender, with the reason shown |
