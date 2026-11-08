@@ -4,10 +4,12 @@ Shared Solidity foundation for the COMP 5521 Distributed Ledger Technology proje
 contract (HTLC) suite that performs an atomic swap between an **ERC20 token on Ethereum Sepolia** and
 **native ETH on Arbitrum Sepolia**.
 
-This repository contains **Milestone 1 — the core foundational architecture** (shared interface, custom
-error library and abstract base contract) **and the Ethereum Sepolia leg** (`ERC20HTLC.sol`, which locks
-the custom MST token). The native-value leg (`ETHHTLC.sol`, Arbitrum Sepolia) is implemented by the other
-group member on top of the same foundation.
+This repository contains the **complete on-chain half of the project (Task A)**: the shared foundation
+(interface, custom error library, abstract base contract), **both swap legs** — `ERC20HTLC.sol` for MST on
+Ethereum Sepolia and `ETHHTLC.sol` for native ETH on Arbitrum Sepolia — and the off-chain protocol
+primitives (`scripts/lib/swapId.js`) that the Task B scripts and the Task C frontend build on. The
+cross-chain coordinator scripts, the web interface, the testnet deployments and the report are the
+remaining work (see §11).
 
 ---
 
@@ -19,9 +21,13 @@ group member on top of the same foundation.
 | `contracts/libraries/HTLCErrors.sol` | Gas-optimised custom errors | All 12 required errors, declared with Solidity's `error` syntax (no `require` strings), plus `ReentrancyDetected` for the custom guard |
 | `contracts/HTLCBase.sol` | Abstract base contract | `mapping(bytes32 => Swap) public swaps`, custom `nonReentrant` guard, `generateSwapId(...)` via `keccak256(abi.encodePacked(...))`, plus shared validation/state-transition helpers |
 | `contracts/ERC20HTLC.sol` | **Ethereum Sepolia leg (Member 1)** | Immutable MST token address, `lockMST` / `claimMST` / `refundMST`, `createSwap` / `claimSwap` / `refundSwap` shims for `IHTLC`, `TransferFailed` on a `false` token return |
-| `contracts/mocks/*.sol` | **Test-only** harnesses | A native-value harness, a re-entrancy attacker, an ETH-rejecting receiver and ERC20 mocks (MST, false-returning token, re-entrant token). Not part of the production architecture. |
+| `contracts/ETHHTLC.sol` | **Arbitrum Sepolia leg (Member 2)** | Native-ETH escrow via `msg.value`, `lockETH` / `claimETH` / `refundETH`, `createSwap` / `claimSwap` / `refundSwap` shims for `IHTLC`, `InvalidZeroAmount` on a zero-value lock, `TransferFailed` when the recipient rejects the payout |
+| `scripts/lib/swapId.js` | Off-chain protocol primitives (Task B foundation) | Both on-chain swap-id derivations, secret/hashlock generation and `verifyLegPair` (shared hashlock + crossed parties + timelock ordering) |
+| `contracts/mocks/*.sol` | **Test-only** harnesses | A native-value harness, a re-entrancy attacker, an ETH-rejecting receiver, a re-entering native receiver and ERC20 mocks (MST, false-returning token, re-entrant token). Not part of the production architecture. |
 | `test/HTLCBase.test.js` | Foundation test suite | 42 tests covering the enum/struct ABI layout, id derivation, every error path, the re-entrancy guard and payout atomicity |
 | `test/ERC20HTLC.test.js` | ERC20 leg test suite | 38 tests covering the MST configuration, `lockMST` validations, token-interaction failures, claim/refund paths, the `IHTLC` surface, accounting invariants and re-entrancy on every entry point |
+| `test/ETHHTLC.test.js` | Native-ETH leg test suite | 37 tests covering the `lockETH` validations, claim/refund paths, the `IHTLC` surface, ETH accounting invariants, rejecting/re-entering receivers, re-entrancy on every entry point and cross-leg parity |
+| `test/swapIdLib.test.js` | Off-chain helper test suite | 13 tests asserting both id derivations against the deployed contracts and every `verifyLegPair` rule |
 
 Technical constraints: **Solidity `^0.8.20`** (compiled with `0.8.20`, EVM target `shanghai`) and
 **MIT** licence on every file.
@@ -37,10 +43,16 @@ E:\comp5521 group project\
 │  ├─ libraries\HTLCErrors.sol     # all custom errors (gas-optimised, no strings)
 │  ├─ HTLCBase.sol                 # abstract base: storage, guard, ids, state machine
 │  ├─ ERC20HTLC.sol                # Ethereum Sepolia leg: locks the MST token (immutable address)
-│  └─ mocks\                       # test-only: HTLCBaseHarness, ReentrancyAttacker, EtherRejector, ERC20Mocks
+│  ├─ ETHHTLC.sol                  # Arbitrum Sepolia leg: escrows native ETH (msg.value)
+│  └─ mocks\                       # test-only: HTLCBaseHarness, ReentrancyAttacker, EtherRejector,
+│                                  #            ReenteringReceiver, ERC20Mocks
+├─ scripts\
+│  └─ lib\swapId.js                # off-chain id derivation, secret generation, leg-pair verification
 ├─ test\
 │  ├─ HTLCBase.test.js             # 42 tests for the shared foundation
-│  └─ ERC20HTLC.test.js            # 38 tests for the MST locking leg
+│  ├─ ERC20HTLC.test.js            # 38 tests for the MST locking leg
+│  ├─ ETHHTLC.test.js              # 37 tests for the native-ETH leg (+ cross-leg parity)
+│  └─ swapIdLib.test.js            # 13 tests for the off-chain protocol helpers
 ├─ hardhat.config.js               # 0.8.20 + optimizer, hardhat / localhost / sepolia / arbitrumSepolia
 ├─ .env.example                    # RPC URLs, deployer key, explorer keys (copy to .env)
 ├─ .solhint.json                   # Solidity linter rules
@@ -55,17 +67,17 @@ E:\comp5521 group project\
 cd 'E:\comp5521 group project'
 npm install          # Node >= 18 (verified with Node 22 / npm 10)
 npm run compile      # npx hardhat compile
-npm test             # 80 passing tests (42 foundation + 38 ERC20 leg)
+npm test             # 130 passing tests (42 foundation + 38 ERC20 leg + 37 ETH leg + 13 helpers)
 npm run lint         # solhint over contracts/**
 npm run gas          # test suite with a gas report (REPORT_GAS=true)
 ```
 
-Deploying to the testnets (needed later by Members 1 and 2):
+Deploying to the testnets requires the Task B deploy scripts (§11); once they exist the entry points are:
 
 ```powershell
 Copy-Item .env.example .env      # then fill in RPC URLs and DEPLOYER_PRIVATE_KEY
-npx hardhat run scripts/<script>.js --network sepolia           # Member 1 (ERC20HTLC)
-npx hardhat run scripts/<script>.js --network arbitrumSepolia   # Member 2 (ETHHTLC)
+npx hardhat run scripts/deploy.js --network sepolia           # MST + ERC20HTLC
+npx hardhat run scripts/deploy.js --network arbitrumSepolia   # ETHHTLC
 ```
 
 > The folder name contains a space, so always quote the path in shell commands.
@@ -173,7 +185,11 @@ State and mechanics owned by the base contract:
     (the native-value leg hashes in the amount, which *is* `msg.value`).
   * 4 arguments `(sender, receiver, hashlock, timelock)` — the brief-mandated variant used by
     `ERC20HTLC.lockMST`: the MST address is immutable per deployment and the amount is funding rather
-    than identity. **Both legs must use the same variant** (see §7.1).
+    than identity.
+  * The two legs therefore derive **different** ids for the same logical swap. That is by design and
+    unavoidable (different amounts, and the required asymmetric timelocks), so cross-chain correlation
+    must never compare ids — use the shared hashlock, the crossed parties and the timelock ordering
+    (§7.1, §7.14, `scripts/lib/swapId.js`).
 * The state-machine helper is split into three steps so a leg can fail fast *before* moving any asset:
   `_validateSwapParams` → `_requireSwapIdAvailable` → *(the leg funds the swap)* → `_storeSwap`.
   `_openSwap` composes all three for legs that receive the asset with the call itself (`msg.value`).
@@ -221,9 +237,10 @@ State and mechanics owned by the base contract:
    clients can compute it before sending the transaction and the same parameter set can never open two
    swaps. Consequence: after a swap has been refunded, re-creating an *identical* swap is rejected —
    change one parameter (receiver, amount or timelock) or add a `nonce` argument to `generateSwapId`
-   if that is ever needed. Note the two id variants in §6: `ERC20HTLC.lockMST` uses the 4-argument form
-   required by the ERC20 leg brief, so `ETHHTLC` must call the same overload if the two legs are to
-   derive the same id for the same (sender, receiver, secret, deadline).
+   if that is ever needed. The two legs use **different derivation variants** (4-argument for
+   `ERC20HTLC`, 6-argument for `ETHHTLC`), so their ids differ for the same logical swap; that is
+   expected and cannot be avoided anyway because the legs carry different amounts and the required
+   asymmetric timelocks (§7.14).
 2. **The claim window closes at the timelock** (`block.timestamp >= timelock` → `TimelockExpired`).
    After expiry only the refund path is available, which removes any claim/refund race at the deadline.
    If the group prefers "claim any time until the sender refunds", relax that single check in
@@ -262,6 +279,30 @@ State and mechanics owned by the base contract:
     malicious re-entrant token is used in the tests to prove it on both the funding and payout paths.
 12. **Leg-specific errors are declared locally** (`NativeValueNotAllowed`, `InvalidTokenContract`) so
     `HTLCErrors.sol` stays exactly the shared set from the brief (12 errors + `ReentrancyDetected`).
+
+### Native leg specifics (`ETHHTLC.sol`)
+
+13. **`msg.value` is the amount; the `IHTLC` `amount` argument is ignored on purpose.** The shared
+    interface has to fit both assets, so `createSwap(receiver, tokenContract, amount, hashlock, timelock)`
+    keeps its shape on the ETH leg, but the locked value is always `msg.value`. A zero-value lock reverts
+    with `InvalidZeroAmount` (from `_openSwap` → `_checkNonZeroAmount`) and any non-zero `tokenContract`
+    with the leg's locally declared `InvalidTokenContract`, which keeps `Swap.tokenContract == address(0)`
+    a reliable "this is the native leg" marker for the coordinator and the UI.
+14. **The two legs derive different ids, and that is correct.** `ERC20HTLC` uses the 4-argument
+    `generateSwapId` (token fixed per deployment, amount treated as funding) while `ETHHTLC` funds through
+    `_openSwap` and the 6-argument form (which also commits to `tokenContract` and `amount`). Even with
+    one shared variant the ids could not match, because a cross-chain swap carries a different amount and,
+    more importantly, **asymmetric timelocks**: the ETH leg must expire strictly before the MST leg.
+    Cross-chain correlation therefore keys on the shared `hashlock`, the crossed party mapping and the
+    timelock ordering — implemented once in `scripts/lib/swapId.js` (`verifyLegPair`) and asserted against
+    both deployed contracts in `test/swapIdLib.test.js`.
+15. **Re-entrancy on the native path is attacked through the receiver, not a token.** `_sendValue` hands
+    control to the ETH recipient, so the tests use `ReenteringReceiver` — a contract that claims its own
+    swap and calls back into the HTLC from inside `receive()`. It records the inner revert, so the tests
+    assert that the revert data is exactly the `ReentrancyDetected` selector (i.e. the guard, not an
+    unrelated failure, did the blocking) on **every** entry point, including the refund payout where the
+    contract is the sender. Its `bubbleAttackFailure` mode additionally proves the atomicity rule: a
+    failed payout leaves the swap `OPEN` and funded.
 
 ---
 
@@ -305,16 +346,21 @@ Public API: `mstToken()`, `lockMST(receiver, amount, hashlock, timelock)`, `clai
 `refundMST(swapId)`, the `IHTLC` shims `createSwap` / `claimSwap` / `refundSwap`, and the inherited
 `swaps(id)` / `getSwap(id)` views. Deployment order: **MST token first, then `ERC20HTLC(mstAddress)`**.
 
-### Member 2 — `ETHHTLC.sol` (Arbitrum Sepolia)
+### Member 2 — `ETHHTLC.sol` (Arbitrum Sepolia) — **implemented**
+
+Delivered as `contracts/ETHHTLC.sol`: the mirror image of the MST leg (`lockETH` / `claimETH` /
+`refundETH` plus the same `IHTLC` shims over one internal implementation). The essential shape:
 
 ```solidity
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
-
-import {HTLCBase} from "./HTLCBase.sol";
-import {HTLCErrors} from "./libraries/HTLCErrors.sol";
-
 contract ETHHTLC is HTLCBase {
+    error InvalidTokenContract();   // leg-specific, declared locally (native value only)
+
+    function lockETH(address payable receiver, bytes32 hashlock, uint256 timelock)
+        external payable nonReentrant returns (bytes32 swapId)
+    {
+        return _lockETH(receiver, hashlock, timelock);
+    }
+
     function createSwap(
         address payable receiver,
         address tokenContract,
@@ -322,40 +368,55 @@ contract ETHHTLC is HTLCBase {
         bytes32 hashlock,
         uint256 timelock
     ) external payable override nonReentrant returns (bytes32 swapId) {
-        // the native leg only ever stores address(0) as its token marker
-        if (tokenContract != address(0)) revert HTLCErrors.InvalidZeroAddress();
-        swapId = _openSwap(msg.sender, receiver, address(0), msg.value, hashlock, timelock);
+        if (tokenContract != address(0)) revert InvalidTokenContract(); // address(0) is the native marker
+        return _lockETH(receiver, hashlock, timelock);
     }
 
-    function claimSwap(bytes32 swapId, bytes32 preimage) external override nonReentrant {
-        Swap memory swap = _settleClaim(swapId, preimage);
-        _sendValue(swap.receiver, swap.amount); // TransferFailed on a rejecting receiver
+    function _lockETH(address payable receiver, bytes32 hashlock, uint256 timelock)
+        internal returns (bytes32 swapId)
+    {
+        // validate (InvalidZeroAmount for msg.value == 0) -> 6-argument generateSwapId
+        // -> _requireSwapIdAvailable -> store + emit SwapCreated
+        return _openSwap(msg.sender, receiver, address(0), msg.value, hashlock, timelock);
     }
 
-    function refundSwap(bytes32 swapId) external override nonReentrant {
-        Swap memory swap = _settleRefund(swapId);
+    function _claimETH(bytes32 swapId, bytes32 preimage) internal {
+        Swap memory swap = _settleClaim(swapId, preimage);   // status is CLAIMED already
+        _sendValue(swap.receiver, swap.amount);              // TransferFailed on a rejecting receiver
+    }
+
+    function _refundETH(bytes32 swapId) internal {
+        Swap memory swap = _settleRefund(swapId);            // status is REFUNDED already
         _sendValue(swap.sender, swap.amount);
     }
+
+    // claimETH / refundETH and the claimSwap / refundSwap shims delegate to the same internals
 }
 ```
 
+Public API: `lockETH(receiver, hashlock, timelock)`, `claimETH(swapId, preimage)`, `refundETH(swapId)`, the
+`IHTLC` shims `createSwap` / `claimSwap` / `refundSwap` (identical call shape to the MST leg, which is what
+lets one coordinator or UI drive both chains), and the inherited `swaps(id)` / `getSwap(id)` views. The
+constructor takes no arguments, so this side has no deployment-ordering constraint.
+
 Both contracts stay thin by design: validation, id derivation, status transitions, events and the
-re-entrancy guard all live in `HTLCBase`, so the two legs cannot drift apart. `ETHHTLC` should call the
-same 4-argument `generateSwapId` overload that `ERC20HTLC.lockMST` uses so both legs derive the same id
-for the same (sender, receiver, secret, deadline) tuple.
+re-entrancy guard all live in `HTLCBase`, so the two legs cannot drift apart. They use different id
+derivation variants on purpose (§7.14), so a client derives each leg's id with the matching function —
+`scripts/lib/swapId.js` provides both, and `test/swapIdLib.test.js` asserts them against the deployed
+contracts.
 
 ---
 
 ## 9. Test suites
 
-`npm test` → **80 passing** (42 foundation + 38 ERC20 leg) in ~2 s on the in-process Hardhat network.
-`npm run coverage` reports **100 % statements / branches / functions / lines** for `ERC20HTLC.sol` and
-`HTLCBase.sol` (and for `IHTLC.sol` / `HTLCErrors.sol`).
+`npm test` → **130 passing** (42 foundation + 38 ERC20 leg + 37 ETH leg + 13 off-chain helpers) in ~4 s on
+the in-process Hardhat network. `npm run coverage` reports **100 % statements / branches / functions /
+lines** for `ERC20HTLC.sol`, `ETHHTLC.sol`, `HTLCBase.sol`, `IHTLC.sol` and `HTLCErrors.sol`.
 
 ### `test/HTLCBase.test.js` (42 tests)
 
 Runs against `HTLCBaseHarness`, a native-value implementation of the lifecycle built on the foundation
-(i.e. exactly what `ETHHTLC` will be).
+(the shape `ETHHTLC` now ships in production form).
 
 | Group | Tests | What is proven |
 | --- | --- | --- |
@@ -385,6 +446,26 @@ Useful extras: `npm run coverage` (solidity-coverage) and `npm run gas` (gas rep
 | `IHTLC` surface | 5 | `createSwap` locks the configured MST and emits the same event as `lockMST`; `NativeValueNotAllowed`; `InvalidTokenContract`; `claimSwap` / `refundSwap` delegate correctly; the MST balance always equals the sum of `OPEN` swaps |
 | re-entrancy on every entry point | 5 | a malicious token cannot re-enter `createSwap`, `claimMST`, `claimSwap`, `refundMST` or `refundSwap` — `ReentrancyDetected`, and the swap stays `OPEN` and funded |
 
+### `test/ETHHTLC.test.js` (37 tests)
+
+| Group | Tests | What is proven |
+| --- | --- | --- |
+| `lockETH` | 9 | `SwapCreated` event, storage fields (`tokenContract == address(0)`, `amount == msg.value`), contract ETH balance, status `OPEN`; returned id matches the off-chain 6-argument derivation; independent swaps per receiver; `InvalidZeroAmount`, `InvalidZeroAddress`, `InvalidTimelock` (current and past), `InvalidPreimage`; `SwapAlreadyExists` *before* any ETH is taken; plain ETH with no calldata rejected (no `receive`) |
+| `claimETH` | 7 | ETH released to the receiver + `SwapClaimed` with the preimage; `InvalidPreimage` (stays `OPEN` and funded), `UnauthorizedReceiver`, `TimelockExpired`, `SwapNotOpen` (double claim, after refund), `SwapDoesNotExist` |
+| `refundETH` | 5 | `TimelockNotExpired`; `UnauthorizedSender`; refund after the deadline + `SwapRefunded`; `SwapNotOpen` after a claim; `SwapDoesNotExist` |
+| `IHTLC` surface | 5 | `createSwap` locks `msg.value` and ignores the `amount` argument; `InvalidZeroAmount`; `InvalidTokenContract`; `claimSwap` / `refundSwap` delegate correctly; the contract balance always equals the sum of `OPEN` swaps |
+| payout safety and re-entrancy | 3 | a rejecting receiver → `TransferFailed` and the swap stays `OPEN` and funded; a re-entering receiver is blocked, with the raw revert data asserted to be the `ReentrancyDetected` selector; the bubbled variant also leaves the swap `OPEN` |
+| re-entrancy on every entry point | 5 | `ReentrancyDetected` for `lockETH`, `createSwap` and `claimSwap` during a payout, and for `refundETH` / `refundSwap` during a refund payout to a contract sender |
+| cross-leg parity | 3 | one preimage settles both legs (the ETH claim reveals it, the MST claim spends it); the two legs derive different ids for the same logical swap; the ETH leg expires and refunds first while the MST leg keeps its longer window and is refunded afterwards |
+
+### `test/swapIdLib.test.js` (13 tests)
+
+| Group | Tests | What is proven |
+| --- | --- | --- |
+| `hashPreimage` / `generateSecret` | 2 | the generated hashlock is accepted and then opened by the deployed `ETHHTLC`; every secret is a fresh 32-byte value |
+| id derivations | 3 | `deriveMstLegSwapId` / `deriveEthLegSwapId` equal what `ERC20HTLC` / `ETHHTLC` return and store; the two legs differ even with identical parameters |
+| `verifyLegPair` | 8 | accepts a correctly crossed pair; rejects non-crossed parties, mismatched hashlocks, a missing asymmetric timelock, already-expired legs, a wrong preimage and zero amounts; exposes the native token marker |
+
 Gas snapshot from `npm run gas` (optimizer on, 200 runs, `solc 0.8.20`):
 
 | Operation | Gas |
@@ -392,7 +473,11 @@ Gas snapshot from `npm run gas` (optimizer on, 200 runs, `solc 0.8.20`):
 | `lockMST` (cold storage, first swap) | ~230k–247k |
 | `claimMST` | ~79k–84k |
 | `refundMST` | ~61k |
+| `lockETH` / `createSwap` (native leg) | ~186k |
+| `claimETH` / `claimSwap` (native leg) | ~55k |
+| `refundETH` / `refundSwap` (native leg) | ~54k |
 | `ERC20HTLC` deployment | ~2.67M |
+| `ETHHTLC` deployment | ~843k |
 
 ---
 
@@ -415,15 +500,26 @@ npx hardhat verify --network arbitrumSepolia <address>
 
 ## 11. Next steps for the group
 
-1. ~~**Member 1** — `contracts/ERC20HTLC.sol`~~ **done**: immutable MST, `lockMST` / `claimMST` /
-   `refundMST`, `IHTLC` shims, 38 tests, 100 % coverage. Remaining: a deploy script (`scripts/`),
-   deploying the MST token + `ERC20HTLC` on Sepolia and verifying both, plus a small `mint`/`approve`
-   helper script for the demo.
-2. **Member 2** — `contracts/ETHHTLC.sol` (use the 4-argument `generateSwapId` overload), deploy and
-   verify on Arbitrum Sepolia, unit tests for the native leg.
-3. **Integration** — an off-chain relayer script that (a) generates `preimage`/`hashlock`, (b) opens both
-   legs with the same `hashlock`, (c) watches `SwapClaimed` and claims the counterparty leg, (d) calls
-   `refundSwap` if the deadline passes. Use **asymmetric timelocks** (the native-ETH leg shorter than the
-   ERC20 leg) so the claiming party always has time to claim the second leg.
-4. **Housekeeping** — add `scripts/` deployment scripts, `git init` (the `.gitignore` is already in
-   place), and reference this README in the report's architecture section.
+On-chain work (Task A) and the off-chain protocol primitives are **done**. What remains, in dependency
+order:
+
+0. ~~**Both legs** — `ERC20HTLC.sol` + `ETHHTLC.sol`, `scripts/lib/swapId.js`~~ **done**: 130 passing
+   tests, 100 % statement/branch/function/line coverage on both legs and on `HTLCBase`, lint clean.
+1. **Task B — `scripts/` coordinator (20 marks).** Build on `scripts/lib/swapId.js`:
+   `deploy.js` (MST + `ERC20HTLC` on Sepolia, `ETHHTLC` on Arbitrum Sepolia, writes the addresses),
+   `1_generateSecret.js`, `2_lockERC20.js` (approve + `lockMST`), `3_lockETH.js` (shorter timelock),
+   `4_verify.js` (calls `verifyLegPair` and refuses a mismatched pair), `5_claimBoth.js` (claim the ETH leg,
+   read the preimage from `SwapClaimed`, claim the MST leg), `6_refund.js` (expiry detection + refund) and
+   `inspect.js` (B3: independent state report for both chains). Add the deployed addresses, MST address
+   and demo timelocks to `.env.example`.
+2. **Task C — frontend (10 marks).** MetaMask connect + network switching between 11155111 and 421614,
+   balances, `approve` + lock both legs, `verifyLegPair` feedback, claim, refund and explorer links.
+   The two legs share one ABI shape, so a single contract wrapper drives both chains.
+3. **Task E — deployment and rehearsal (10 marks).** Deploy + verify both contracts, record the addresses
+   here (§10), pre-fund two accounts and rehearse both the claim path and the timeout/refund path with
+   shortened timelocks.
+4. **Task D + F — report, slides, contribution table, `Changes.md` (25 marks).** §7 and §9 of this README
+   are written to be lifted straight into the design/implementation and testing sections; state which
+   functions were AI-assisted, as the AI policy requires.
+5. **Optional Challenge Part (10 marks)** — private cross-chain linkage (ZK equality of preimages,
+   adaptor signatures / point locks). Only after 1–4 are green; it must preserve the refund path.

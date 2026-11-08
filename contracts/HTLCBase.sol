@@ -129,14 +129,18 @@ abstract contract HTLCBase is IHTLC {
 
     /**
      * @notice Derives the swap id from the four parameters that identify a swap secret.
-     * @dev Overload required by the ERC20 leg (`ERC20HTLC.lockMST`): the token is fixed per deployment
-     *      (`mstToken` is immutable) and the amount is part of the funding, not of the swap identity, so
-     *      `keccak256(abi.encodePacked(sender, receiver, hashlock, timelock))` is enough. Excluding the
-     *      token and the amount also means the same (sender, receiver, secret, deadline) tuple produces
-     *      the same id on both legs, which is convenient for off-chain correlation.
+     * @dev Overload used by the ERC20 leg (`ERC20HTLC`, through `lockMST` and its `createSwap` shim): the
+     *      token is fixed per deployment (`mstToken` is immutable) and the amount is part of the funding,
+     *      not of the swap identity, so `keccak256(abi.encodePacked(sender, receiver, hashlock, timelock))`
+     *      is enough.
      *
-     *      IMPORTANT: both legs must use the SAME variant. `ETHHTLC` should call this 4-argument
-     *      overload too, otherwise the two legs derive different ids for the same logical swap.
+     *      The two legs deliberately use DIFFERENT variants: `ETHHTLC` funds through `_openSwap` and the
+     *      6-argument form above, which also commits to `tokenContract` and `amount`. Their ids are
+     *      therefore different for the same logical swap - and they would be different even with one
+     *      shared variant, because the legs carry different amounts (MST vs wei) and the (required)
+     *      asymmetric timelocks. Cross-chain correlation must NOT compare ids: it uses the shared
+     *      hashlock, the crossed party mapping and the timelock ordering instead
+     *      (see `scripts/lib/swapId.js` and `test/swapIdLib.test.js`).
      *
      * @param sender   Account funding the swap (normally `msg.sender`).
      * @param receiver Account allowed to claim the swap.
