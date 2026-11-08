@@ -5,13 +5,18 @@ const {
   SEPOLIA_RPC_URL,
   ARBITRUM_SEPOLIA_RPC_URL,
   DEPLOYER_PRIVATE_KEY,
+  ALICE_PRIVATE_KEY,
+  BOB_PRIVATE_KEY,
   ETHERSCAN_API_KEY,
   ARBISCAN_API_KEY,
   REPORT_GAS,
 } = process.env;
 
-// An empty array keeps `npx hardhat compile` / `npx hardhat test` working without a .env file.
-const accounts = DEPLOYER_PRIVATE_KEY ? [DEPLOYER_PRIVATE_KEY] : [];
+// The protocol scripts expect [DEPLOYER, ALICE, BOB] in this order (see scripts/lib/chain.js). Missing
+// keys are simply left out, so `npx hardhat compile` / `npx hardhat test` keep working without a .env file.
+const accounts = [DEPLOYER_PRIVATE_KEY, ALICE_PRIVATE_KEY, BOB_PRIVATE_KEY].filter(
+  (key) => typeof key === "string" && key.trim() !== ""
+);
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {

@@ -13,6 +13,9 @@ typechain-types/
 .env.local
 .env.*.local
 
+# Coordinator state (contains the swap preimage and the swap-group records)
+scripts/.state/
+
 # Editor / OS noise
 .DS_Store
 Thumbs.db
